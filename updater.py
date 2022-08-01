@@ -20,7 +20,7 @@ async def _listen_forever():
             pass
     if platform.platform().lower().startswith("linux"):
         subprocess.Popen(
-            "bash /home/ec2-user/update_webapp.sh > /dev/null &2>1",
+            "bash /home/ec2-user/update_webapp.sh > /dev/null 2>&1",
             shell=True,
             stdin=None,
             stdout=None,
