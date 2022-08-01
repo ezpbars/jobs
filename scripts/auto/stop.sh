@@ -2,7 +2,7 @@
 main() {
     screen -S webapp -X quit
     local cnt=0
-    while (( $cnt -le 15 ))
+    while (( $cnt < 15 ))
     do
         if [ -f updater.lock ]
         then
