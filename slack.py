@@ -29,13 +29,11 @@ class Slack:
             blocks (list): see https://api.slack.com/messaging/webhooks#advanced_message_formatting
             preview (str): the text for notifications
         """
-        response = await self.session.post(
+        await self.session.post(
             url=url,
             json={"text": preview, "blocks": blocks},
             headers={"content-type": "application/json; charset=UTF-8"},
         )
-        async with response:
-            print(await response.text())
 
     async def send_message(
         self,
@@ -52,7 +50,6 @@ class Slack:
             preview (str, None): the text for notifications or None to use the message
             markdown (bool): True for markdown format, False for raw text
         """
-        print(f"{url=}")
         if preview is None:
             preview = message
         await self.send_blocks(
