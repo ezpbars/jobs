@@ -7,13 +7,13 @@ import os
 
 
 async def _listen_forever():
-    """Subscribes to the redis channel updates:backend and upon
+    """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
     async with Itgs() as itgs:
         redis = await itgs.redis()
         pubsub = redis.pubsub()
-        await pubsub.subscribe("updates:backend")
+        await pubsub.subscribe("updates:jobs")
         while (
             await pubsub.get_message(ignore_subscribe_messages=True, timeout=5)
         ) is None:
@@ -36,7 +36,7 @@ async def _listen_forever():
 
 
 async def listen_forever():
-    """Subscribes to the redis channel updates:backend and upon
+    """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
     if os.path.exists("updater.lock"):
@@ -50,7 +50,7 @@ async def listen_forever():
 
 
 def listen_forever_sync():
-    """Subscribes to the redis channel updates:backend and upon
+    """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
     asyncio.run(listen_forever())
