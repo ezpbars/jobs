@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 main() {
-    screen -S webapp -X quit
+    screen -S webapp -X stuff "^C"
     local cnt=0
     while (( $cnt < 15 ))
     do
