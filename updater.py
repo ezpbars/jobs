@@ -4,12 +4,14 @@ import asyncio
 import subprocess
 import platform
 import os
+from graceful_death import GracefulDeath
 
 
 async def _listen_forever():
     """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
+    gd = GracefulDeath()
     async with Itgs() as itgs:
         redis = await itgs.redis()
         pubsub = redis.pubsub()
@@ -17,7 +19,9 @@ async def _listen_forever():
         while (
             await pubsub.get_message(ignore_subscribe_messages=True, timeout=5)
         ) is None:
-            pass
+            if gd.received_term_signal:
+                print("updater shutting down")
+                return
     if platform.platform().lower().startswith("linux"):
         subprocess.Popen(
             "bash /home/ec2-user/update_webapp.sh > /dev/null 2>&1",
@@ -54,3 +58,7 @@ def listen_forever_sync():
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
     asyncio.run(listen_forever())
+
+
+if __name__ == "__main__":
+    listen_forever_sync()

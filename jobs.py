@@ -9,7 +9,7 @@ class Job(TypedDict):
 
     name: str
     """the name of the job which corresponds to the import path in the jobs module
-    e.g., 'jobs.charge' corresponds to the excecute function in jobs/charge.py
+    e.g., 'runners.charge' corresponds to the excecute function in jobs/charge.py
     relative to the jobs root directory
     """
     kwargs: dict
@@ -49,7 +49,7 @@ class Jobs:
 
         Args:
             name (str): the name of the job which corresponds to the import path in the jobs module
-                e.g., 'jobs.charge' corresponds to the excecute function in jobs/charge.py
+                e.g., 'runners.charge' corresponds to the excecute function in jobs/charge.py
                 relative to the jobs root directory
             kwargs (dict): the keyword arguments to pass to the job; must be json serializable
                 the jobs will automatically be sent the integrations and graceful death handler
@@ -67,11 +67,14 @@ class Jobs:
         Returns:
             (Job, None): The oldest job, if there is one
         """
-        job_serd_and_encoded: Optional[bytes] = await self.conn.blpop(
+        response: Optional[tuple] = await self.conn.blpop(
             self.queue_key, timeout=timeout
         )
-        if job_serd_and_encoded is None:
+        if response is None:
             return None
+        job_serd_and_encoded: bytes = response[1]
+        print(repr(job_serd_and_encoded))
         job_serd = job_serd_and_encoded.decode("utf-8")
+        print(repr(job_serd))
         job = json.loads(job_serd)
         return job
