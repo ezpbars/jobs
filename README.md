@@ -9,6 +9,7 @@ python -m venv venv
 . venv/bin/activate
 python -m pip install -U pip
 pip install -r requirements.txt
+python main.py
 ```
 
 ## Contributing
