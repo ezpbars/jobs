@@ -102,7 +102,7 @@ async def execute(
                 percentile=0.5,
                 eta=0,
                 steps=[],
-                version=0,
+                version=-1,
             ).json(),
         )
         return
@@ -117,7 +117,7 @@ async def execute(
                 percentile=0.5,
                 eta=0,
                 steps=[],
-                version=0,
+                version=-1,
             ).json(),
         )
         return
@@ -181,6 +181,9 @@ async def execute(
         ],
         return_exceptions=True,
     )
+    for step_eta in step_etas:
+        if isinstance(step_eta, Exception):
+            raise step_eta
     step_etas = [
         calc_eta
         if not isinstance(calc_eta, (Exception, type(None)))
@@ -391,13 +394,15 @@ async def get_overall_eta_percentile(
                 progress_bar_trace_steps.finished_at - progress_bar_traces.created_at AS duration
             FROM progress_bar_traces
             JOIN progress_bar_trace_steps ON progress_bar_trace_steps.progress_bar_trace_id = progress_bar_traces.id
-            WHERE
-                progress_bar_trace_steps.position = ?
+            WHERE EXISTS (
+                SELECT 1 FROM progress_bar_steps
+                WHERE progress_bar_steps.id = progress_bar_trace_steps.progress_bar_step_id
+                AND progress_bar_steps.position = ?
+            )
         )
         SELECT
             trace_durations.duration
         FROM trace_durations
-        JOIN trace_counts ON trace_counts.progress_bar_id = trace_durations.progress_bar_id
         WHERE
             EXISTS (
                 SELECT 1 FROM progress_bars
@@ -406,13 +411,25 @@ async def get_overall_eta_percentile(
                 AND progress_bars.version = ?
             )
         ORDER BY trace_durations.duration ASC
-        LIMIT 1 OFFSET FLOOR(trace_counts.trace_count * ?)
+        LIMIT 1 OFFSET (
+            SELECT
+                COALESCE(AVG(CAST(COALESCE(trace_counts.trace_count, 0) * ? AS INTEGER)),0)
+            FROM trace_counts
+            WHERE EXISTS (
+                SELECT 1 FROM progress_bars
+                WHERE progress_bars.id = trace_counts.progress_bar_id
+                AND progress_bars.uid = ?
+                AND progress_bars.version = ?
+            )
+        )
         """,
         (
             len(steps_info) - 1,
             bar_info.uid,
             bar_info.version,
             steps_info[0].one_off_percentile / 100,
+            bar_info.uid,
+            bar_info.version,
         ),
     )
     if not response.results:
@@ -446,7 +463,11 @@ async def get_overall_eta_arithmetic_mean(
             FROM progress_bar_traces
             JOIN progress_bar_trace_steps ON progress_bar_trace_steps.progress_bar_trace_id = progress_bar_traces.id
             WHERE
-                progress_bar_trace_steps.position = ?
+                EXISTS (
+                    SELECT 1 FROM progress_bar_steps
+                    WHERE progress_bar_steps.id = progress_bar_trace_steps.progress_bar_step_id
+                    AND progress_bar_steps.position = ?
+                )
         )
         SELECT
             AVG(trace_durations.duration)
@@ -496,7 +517,11 @@ async def get_overall_eta_geometric_mean(
             FROM progress_bar_traces
             JOIN progress_bar_trace_steps ON progress_bar_trace_steps.progress_bar_trace_id = progress_bar_traces.id
             WHERE
-                progress_bar_trace_steps.position = ?
+                EXISTS (
+                    SELECT 1 FROM progress_bar_steps
+                    WHERE progress_bar_steps.id = progress_bar_trace_steps.progress_bar_step_id
+                    AND progress_bar_steps.position = ?
+                )
         )
         SELECT
             trace_durations.duration
@@ -517,7 +542,7 @@ async def get_overall_eta_geometric_mean(
     )
     if not response.results:
         return None
-    return float(gmean(np.array(response.results).reshape(len(response.results)))[0])
+    return float(gmean(np.array(response.results).reshape(len(response.results))))
 
 
 async def get_overall_eta_harmonic_mean(
@@ -546,7 +571,11 @@ async def get_overall_eta_harmonic_mean(
             FROM progress_bar_traces
             JOIN progress_bar_trace_steps ON progress_bar_trace_steps.progress_bar_trace_id = progress_bar_traces.id
             WHERE
-                progress_bar_trace_steps.position = ?
+                EXISTS (
+                    SELECT 1 FROM progress_bar_steps
+                    WHERE progress_bar_steps.id = progress_bar_trace_steps.progress_bar_step_id
+                    AND progress_bar_steps.position = ?
+                )
         )
         SELECT
             trace_durations.duration
@@ -567,7 +596,7 @@ async def get_overall_eta_harmonic_mean(
     )
     if not response.results:
         return None
-    return float(hmean(np.array(response.results).reshape(len(response.results)))[0])
+    return float(hmean(np.array(response.results).reshape(len(response.results))))
 
 
 async def get_step_eta_one_off_percentile(
@@ -610,7 +639,6 @@ async def get_step_eta_one_off_percentile(
         SELECT
             trace_step_durations.duration
         FROM trace_step_durations
-        JOIN trace_counts ON trace_counts.progress_bar_id = trace_step_durations.progress_bar_id
         WHERE
             EXISTS (
                 SELECT 1 FROM progress_bars
@@ -620,13 +648,25 @@ async def get_step_eta_one_off_percentile(
             )
             AND trace_step_durations.step_position = ?
         ORDER BY trace_step_durations.duration
-        LIMIT 1 OFFSET FLOOR(trace_counts.trace_count * ?)
+        LIMIT 1 OFFSET (
+            SELECT
+                COALESCE(AVG(CAST(COALESCE(trace_counts.trace_count, 0) * ? AS INTEGER)),0)
+            FROM trace_counts
+            WHERE EXISTS (
+                SELECT 1 FROM progress_bars
+                WHERE progress_bars.id = trace_counts.progress_bar_id
+                AND progress_bars.uid = ?
+                AND progress_bars.version = ?
+            )
+        )
         """,
         (
             bar_info.uid,
             bar_info.version,
             step_position,
             steps_info[step_position].one_off_percentile / 100,
+            bar_info.uid,
+            bar_info.version,
         ),
     )
     if not response.results:
@@ -734,7 +774,7 @@ async def get_step_eta_one_off_harmonic_mean(
     if not response.results:
         return None
     return (
-        float(hmean(np.array(response.results).reshape(len(response.results)))[0]),
+        float(hmean(np.array(response.results).reshape(len(response.results)))),
         None,
     )
 
@@ -788,7 +828,7 @@ async def get_step_eta_one_off_geometric_mean(
     if not response.results:
         return None
     return (
-        float(gmean(np.array(response.results).reshape(len(response.results)))[0]),
+        float(gmean(np.array(response.results).reshape(len(response.results)))),
         None,
     )
 
@@ -833,7 +873,6 @@ async def get_step_eta_iterated_percentile(
         SELECT
             trace_step_durations.duration
         FROM trace_step_durations
-        JOIN trace_counts ON trace_counts.progress_bar_id = trace_step_durations.progress_bar_id
         WHERE
             EXISTS (
                 SELECT 1 FROM progress_bars
@@ -843,13 +882,25 @@ async def get_step_eta_iterated_percentile(
             )
             AND trace_step_durations.step_position = ?
         ORDER BY trace_step_durations.duration
-        LIMIT 1 OFFSET FLOOR(trace_counts.trace_count * ?)
+        LIMIT 1 OFFSET (
+            SELECT
+                COALESCE(AVG(CAST(COALESCE(trace_counts.trace_count, 0) * ? AS INTEGER)),0)
+            FROM trace_counts
+            WHERE EXISTS (
+                SELECT 1 FROM progress_bars
+                WHERE progress_bars.id = trace_counts.progress_bar_id
+                AND progress_bars.uid = ?
+                AND progress_bars.version = ?
+            )
+        )
         """,
         (
             bar_info.uid,
             bar_info.version,
             step_position,
             steps_info[step_position].iterated_percentile / 100,
+            bar_info.uid,
+            bar_info.version,
         ),
     )
     if not response.results:
@@ -957,7 +1008,7 @@ async def get_step_eta_iterated_geometric_mean(
     if not response.results:
         return None
     return (
-        float(gmean(np.array(response.results).reshape(len(response.results)))[0]),
+        float(gmean(np.array(response.results).reshape(len(response.results)))),
         None,
     )
 
@@ -1011,7 +1062,7 @@ async def get_step_eta_iterated_harmonic_mean(
     if not response.results:
         return None
     return (
-        float(hmean(np.array(response.results).reshape(len(response.results)))[0]),
+        float(hmean(np.array(response.results).reshape(len(response.results)))),
         None,
     )
 
@@ -1037,7 +1088,7 @@ async def get_step_eta_iterated_best_fit_linear(
         """
         SELECT 
             progress_bar_trace_steps.iterations,
-            progress_bar_trace_steps.finished_at - progress_bar_traces.created_at AS duration
+            progress_bar_trace_steps.finished_at - progress_bar_trace_steps.started_at AS duration
         FROM progress_bar_trace_steps
         WHERE
             EXISTS (
@@ -1050,7 +1101,11 @@ async def get_step_eta_iterated_best_fit_linear(
                     AND progress_bars.version = ?
                 )
             )
-            AND progress_bar_trace_steps.position = ?
+            AND EXISTS (
+                SELECT 1 FROM progress_bar_steps
+                WHERE progress_bar_steps.id = progress_bar_trace_steps.progress_bar_step_id
+                AND progress_bar_steps.position = ?
+            )
         """,
         (
             bar_info.uid,
@@ -1063,6 +1118,8 @@ async def get_step_eta_iterated_best_fit_linear(
     data = np.array(response.results)
     x = data[:, 0]
     y = data[:, 1]
+    if np.all(x == x[0]):
+        return float(np.average(y) / x[0]), 0.0
     poly: Polynomial = Polynomial.fit(x, y, 1).convert()
     result = poly.coef
     return float(result[0]), float(result[1])

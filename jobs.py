@@ -73,7 +73,6 @@ class Jobs:
         if response is None:
             return None
         job_serd_and_encoded: bytes = response[1]
-        print(repr(job_serd_and_encoded))
         job_serd = job_serd_and_encoded.decode("utf-8")
         print(repr(job_serd))
         job = json.loads(job_serd)

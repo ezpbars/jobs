@@ -41,7 +41,13 @@ class StepInfo:
 
 
 async def execute(
-    itgs: Itgs, gd: GracefulDeath, *, user_sub: str, pbar_name: str, trace_uid: str
+    itgs: Itgs,
+    gd: GracefulDeath,
+    *,
+    user_sub: str,
+    pbar_name: str,
+    trace_uid: str,
+    expected_pbar_version: Optional[int] = None,
 ):
     """potentially bootstraps the progress bar, and then samples the trace according
     to the progress bar sampling technique
@@ -57,13 +63,14 @@ async def execute(
     if not trace_info:
         return
 
-    async def bounce():
+    async def bounce(expected_pbar_version: Optional[int] = None):
         jobs = await itgs.jobs()
         await jobs.enqueue(
             "runners.handle_completed_trace",
             user_sub=user_sub,
             pbar_name=pbar_name,
             trace_uid=trace_uid,
+            expected_pbar_version=expected_pbar_version,
         )
 
     if gd.received_term_signal:
@@ -72,12 +79,14 @@ async def execute(
     if gd.received_term_signal:
         return await bounce()
     if not pbar_info:
-        await asyncio.wait(
-            [
-                use_trace_to_initialize_pbar(itgs, user_sub, pbar_name, trace_info),
-                purge_info_from_redis(itgs, user_sub, pbar_name, trace_uid),
-            ]
+        if expected_pbar_version is not None:
+            return
+        await use_trace_to_initialize_pbar(
+            itgs, user_sub, pbar_name, trace_info[0], trace_info[1]
         )
+        await bounce(0)
+        return
+    if expected_pbar_version is not None and pbar_info.version != expected_pbar_version:
         return
 
     steps_info = await get_steps_info(itgs, user_sub, pbar_name, pbar_info.version)
@@ -89,19 +98,25 @@ async def execute(
         for actual, expected in zip(trace_info[1], steps_info)
     )
     if not is_compatible:
-        await asyncio.wait(
-            [
-                use_trace_to_increment_pbar_version(
-                    itgs, user_sub, pbar_name, pbar_info.version, trace_info, steps_info
-                ),
-                purge_info_from_redis(itgs, user_sub, pbar_name, trace_uid),
-            ]
+        await use_trace_to_increment_pbar_version(
+            itgs,
+            user_sub,
+            pbar_name,
+            pbar_info.version,
+            trace_info[0],
+            trace_info[1],
         )
+        await bounce(pbar_info.version + 1)
         return
     await asyncio.wait(
         [
             sample_trace(
-                itgs, user_sub, pbar_name, pbar_info.version, trace_info, steps_info
+                itgs,
+                user_sub,
+                pbar_name,
+                pbar_info.version,
+                trace_info[0],
+                trace_info[1],
             ),
             purge_info_from_redis(itgs, user_sub, pbar_name, trace_uid),
             update_tcount(
@@ -171,7 +186,7 @@ async def get_info_from_redis_raw(
             "finished_at",
         )
         step_info = TraceStepInfo(
-            step_name=step_info_raw[0],
+            step_name=str(step_info_raw[0], "utf-8"),
             iteration=int(step_info_raw[1]),
             iterations=int(step_info_raw[2]),
             started_at=float(step_info_raw[3]),
@@ -277,6 +292,8 @@ async def get_steps_info(
         """,
         (user_sub, pbar_name, pbar_version),
     )
+    if not response.results:
+        return []
     return [StepInfo(name=row[0], iterated=bool(row[1])) for row in response.results]
 
 
@@ -311,10 +328,10 @@ async def use_trace_to_initialize_pbar(
                     uid,
                     name,
                     sampling_max_count,
-                    sampling-max_age_seconds,
+                    sampling_max_age_seconds,
                     sampling_technique,
                     version,
-                    created_at,
+                    created_at
                 )
                 SELECT users.id, ?, ?, ?, ?, ?, ?, ?
                 FROM users
@@ -471,51 +488,9 @@ async def use_trace_to_increment_pbar_version(
                                   AND users.id = progress_bars.user_id
                             )
                     )
+                    AND progress_bar_steps.position > 0
                     """,
                 (pbar_name, pbar_version, user_sub),
-            ),
-            (
-                """
-                    INSERT INTO progress_bar_steps (
-                        progress_bar_id,
-                        uid,
-                        name,
-                        position,
-                        iterated,
-                        one_off_technique,
-                        one_off_percentile,
-                        iterated_technique,
-                        iterated_percentile,
-                        created_at
-                    )
-                    SELECT
-                        progress_bars.id,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?
-                    FROM progress_bars
-                    WHERE
-                        EXISTS (
-                            SELECT 1 FROM users
-                            WHERE users.sub = ?
-                                AND users.id = progress_bars.user_id
-                        )
-                        AND progress_bars.name = ?
-                        AND progress_bars.version = ?
-
-                    """,
-                (
-                    default_step_uid,
-                    "default",
-                    0,
-                    0,
-                    "percentile",
-                    75,
-                    "best_fit.linear",
-                    75,
-                    now,
-                    user_sub,
-                    pbar_name,
-                    pbar_version,
-                ),
             ),
             *[
                 (
@@ -534,8 +509,18 @@ async def use_trace_to_increment_pbar_version(
                     )
                     SELECT
                         progress_bars.id,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?,
+                        default_progress_bar_steps.one_off_technique,
+                        default_progress_bar_steps.one_off_percentile,
+                        default_progress_bar_steps.iterated_technique,
+                        default_progress_bar_steps.iterated_percentile,
+                        ?
                     FROM progress_bars
+                    JOIN progress_bar_steps AS default_progress_bar_steps
+                        ON (
+                            default_progress_bar_steps.progress_bar_id = progress_bars.id
+                            AND default_progress_bar_steps.name = 'default'
+                        )
                     WHERE
                         EXISTS (
                             SELECT 1 FROM users
@@ -550,10 +535,6 @@ async def use_trace_to_increment_pbar_version(
                         step_info.step_name,
                         idx + 1,
                         int(step_info.iterations is not None),
-                        "percentile",
-                        75,
-                        "best_fit.linear",
-                        75,
                         now,
                         user_sub,
                         pbar_name,
@@ -566,7 +547,7 @@ async def use_trace_to_increment_pbar_version(
                 """
                 UPDATE progress_bars
                 SET
-                    progress_bars.version = progress_bars.version + 1
+                    version = progress_bars.version + 1
                 WHERE
                     EXISTS (
                         SELECT 1 FROM users
@@ -752,8 +733,8 @@ async def sample_trace(
                             AND progress_bars.name = ?
                             AND progress_bars.version = ?
                             AND progress_bars.id = progress_bar_traces.progress_bar_id
+                            AND progress_bar_traces.created_at < ? - progress_bars.sampling_max_age_seconds
                     )
-                    AND progress_bar_traces.created_at < ? - progress_bars.sampling_max_age_seconds
                 """,
                 (user_sub, pbar_name, pbar_version, trace_info.created_at),
             ),
