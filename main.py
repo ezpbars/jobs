@@ -18,7 +18,9 @@ async def _main(gd: GracefulDeath):
                 continue
             try:
                 mod = importlib.import_module(job["name"])
+                started_at = time.perf_counter()
                 await mod.execute(itgs, gd, **job["kwargs"])
+                print(f"finished in {time.perf_counter() - started_at:.3f} seconds")
             except Exception as e:
                 await handle_error(e)
                 continue
