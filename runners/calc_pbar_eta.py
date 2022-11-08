@@ -11,6 +11,9 @@ from scipy.stats.mstats import gmean, hmean
 from redis.asyncio.client import Pipeline
 
 
+EXCLUSIVE = True
+
+
 class JobResultStepItem(BaseModel):
     step_name: str = Field(description="the name of the step")
     iterated: bool = Field(description="whether the step is iterated")

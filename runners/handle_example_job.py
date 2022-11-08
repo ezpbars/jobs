@@ -1,4 +1,6 @@
-"""a job for use in examples"""
+"""the handler for the job used in the examples in the client libraries hosted by us;
+for example ezpbarsjs
+"""
 import asyncio
 import math
 import os
@@ -7,6 +9,9 @@ import aiohttp
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import numpy as np
+
+
+EXCLUSIVE = False
 
 
 async def execute(
@@ -23,6 +28,11 @@ async def execute(
     Args:
         itgs (Itgs): the integration to use; provided automatically
         gd (GracefulDeath): the signal tracker; provided automatically
+        sub (str): the sub of the user who owns the progress bar
+        pbar_name (str): the name of the progress bar
+        uid (str): the uid of the trace
+        duration (int): the duration of the job, used as the number of iterations
+        stdev (int): the standard deviation of the amount of time each iteration takes
     """
     stdev_step = math.sqrt((stdev * stdev) / duration)
     rng = np.random.default_rng()
