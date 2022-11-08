@@ -55,4 +55,6 @@ async def execute(
                     max(rng.standard_normal(1)[0] * stdev_step + 1, 0.01)
                 )
         redis = await itgs.redis()
-        redis.set(f"example:{uid}", bytes(str(rng.integers(1, 1000)), "utf-8"), ex=600)
+        await redis.set(
+            f"example:{uid}", bytes(str(rng.integers(1, 1000)), "utf-8"), ex=600
+        )
