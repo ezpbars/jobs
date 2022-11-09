@@ -39,8 +39,9 @@ async def _main(gd: GracefulDeath):
                     continue
 
             if module_is_exclusive[job["name"]]:
-                await asyncio.wait(running, return_when=asyncio.ALL_COMPLETED)
-                running.clear()
+                if running:
+                    await asyncio.wait(running, return_when=asyncio.ALL_COMPLETED)
+                    running.clear()
                 await _run_job(itgs, gd, job)
                 continue
 

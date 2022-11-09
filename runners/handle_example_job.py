@@ -9,6 +9,7 @@ import aiohttp
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import numpy as np
+from example_user import get_example_user_token
 
 
 EXCLUSIVE = False
@@ -38,23 +39,38 @@ async def execute(
     rng = np.random.default_rng()
     async with Itgs() as itgs:
         async with aiohttp.ClientSession() as session:
-            for second in range(0, duration + 1):
+            token = await get_example_user_token(itgs)
+            for second in range(0, duration):
                 await session.post(
                     url=f'{os.environ["ROOT_BACKEND_URL"]}/api/1/progress_bars/traces/steps/',
+                    headers={"Authorization": f"bearer {token}"},
                     json={
                         "pbar_name": pbar_name,
                         "trace_uid": uid,
                         "step_name": "calculating",
                         "iteration": second,
                         "iterations": duration,
-                        "done": second == duration,
+                        "done": False,
                         "now": time.time(),
                     },
                 )
                 await asyncio.sleep(
                     max(rng.standard_normal(1)[0] * stdev_step + 1, 0.01)
                 )
-        redis = await itgs.redis()
-        await redis.set(
-            f"example:{uid}", bytes(str(rng.integers(1, 1000)), "utf-8"), ex=600
-        )
+            redis = await itgs.redis()
+            await redis.set(
+                f"example:{uid}", bytes(str(rng.integers(1, 1000)), "utf-8"), ex=600
+            )
+            await session.post(
+                url=f'{os.environ["ROOT_BACKEND_URL"]}/api/1/progress_bars/traces/steps/',
+                headers={"Authorization": f"bearer {token}"},
+                json={
+                    "pbar_name": pbar_name,
+                    "trace_uid": uid,
+                    "step_name": "calculating",
+                    "iteration": duration,
+                    "iterations": duration,
+                    "done": True,
+                    "now": time.time(),
+                },
+            )
